@@ -1,0 +1,10 @@
+torch>=2.0
+torchvision
+albumentations>=1.4.0
+segmentation-models-pytorch
+timm
+opencv-python
+numpy
+pandas
+matplotlib
+tqdm
