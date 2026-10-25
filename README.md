@@ -4,7 +4,6 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c)
-![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
@@ -39,13 +38,15 @@ Pothole Segmentation/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/<your-username>/pothole-segmentation.git
-cd pothole-segmentation
+git clone https://github.com/tamaraw01/Pothole-Segmentation.git
+cd Pothole-Segmentation
 ```
 
 ### 2. Set up the dataset
 
-Download the dataset and place it under `dataset/` following the structure above.
+Place the extracted dataset under `dataset/` following the structure above. The [notebook](pothole-segmentation.ipynb) uses paths relative to the project root, so launch Jupyter from `Pothole-Segmentation/`.
+
+Training image names must end with an underscore and an identifier, such as `train_326.jpg`. The notebook pairs that image with `dataset/train/mask/mask_326.png` and drops pairs whose mask file is missing. If no pairs remain, the data preparation cell fails when it prints the first pair. Check the directory names and image/mask identifiers before running it.
 
 ### 3. Install dependencies
 
@@ -91,10 +92,6 @@ Execute cells sequentially. Training runs for **25 epochs** with mixed-precision
 ### Post-Processing
 - Morphological closing (5×5 kernel)
 - Connected component filtering (min area = 200 px)
-
-## 📝 License
-
-This project is released under the [MIT License](LICENSE).
 
 ## 🙏 Acknowledgments
 
