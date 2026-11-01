@@ -1,100 +1,76 @@
-# 🕳️ Pothole Segmentation
+# Pothole segmentation
 
-**Semantic segmentation** of road potholes using **UNet++ with EfficientNet-B5** encoder, trained with mixed-precision and strong augmentations.
+A PyTorch notebook for binary road-image segmentation with UNet++ and an ImageNet-pretrained EfficientNet-B5 encoder. It covers image-mask pairing, training, validation threshold selection, and run-length encoded predictions.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c)
+The [notebook](pothole-segmentation.ipynb) contains the implementation, but no saved execution outputs or trained checkpoint. No model accuracy or Dice result is reported here.
 
----
+## Pipeline
 
-## 📋 Overview
+- Pair `train_<id>.jpg` images with `mask_<id>.png` masks, treating nonzero mask pixels as foreground.
+- Split images by foreground-area bins, taking roughly 10% of each bin for validation with seed `42`.
+- Train with a loss of `0.3 * BCE + 0.5 * Dice + 0.2 * Focal`, AdamW, cosine learning-rate decay, and CUDA automatic mixed precision when available.
+- Save the checkpoint with the best validation Dice at threshold `0.5`, then search 12 thresholds from `0.25` to `0.80` on the same validation set.
+- Average predictions across horizontal flips and three nominal image scales, apply morphological closing and component filtering, and export a submission CSV.
 
-This project trains a semantic segmentation model to detect and delineate potholes in road images. The pipeline is implemented in a single Jupyter notebook and includes:
+## Data and setup
 
-- **Model:** UNet++ decoder with EfficientNet-B5 backbone (ImageNet pre-trained)
-- **Loss:** Weighted combination of BCE (0.3) + Dice (0.5) + Focal (0.2)
-- **Training:** Mixed-precision (AMP), cosine annealing LR, stratified train/val split
-- **Inference:** Multi-scale test-time augmentation (TTA) + morphological post-processing
-- **Output:** RLE-encoded submission CSV
+Run from the repository root. The tracked `dataset.zip` uses Git LFS; a clone without downloaded LFS objects contains a pointer, not an extractable ZIP. Retrieve the object before extracting it, or supply compatible data yourself. Dataset provenance and redistribution terms are not documented in this repository; confirm them before reuse.
 
-## 📁 Project Structure
-
-```
-Pothole Segmentation/
-├── pothole-segmentation.ipynb   # Main training & inference notebook
-├── dataset/
-│   ├── train/
-│   │   ├── images/              # 498 training images (train_XXX.jpg)
-│   │   └── mask/                # 498 binary masks   (mask_XXX.png)
-│   └── test/
-│       └── images/              # 295 test images    (test_XXX.jpg)
-├── requirements.txt
-├── .gitignore
-└── README.md
+```text
+dataset/
+├── train/
+│   ├── images/train_<id>.jpg
+│   └── mask/mask_<id>.png
+└── test/
+    └── images/test_<id>.jpg
 ```
 
-## 🚀 Getting Started
+The notebook silently drops image-mask pairs whose masks are missing. If no pairs remain, its first-example print fails. Check pairing and readable image files before training.
 
-### 1. Clone the repository
+Create a Python environment and install the [dependencies](requirements.txt), plus the notebook interface:
 
 ```bash
-git clone https://github.com/tamaraw01/Pothole-Segmentation.git
-cd Pothole-Segmentation
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install notebook
+python -m notebook pothole-segmentation.ipynb
 ```
 
-### 2. Set up the dataset
+Read the configuration and augmentation cells before running sequentially. The first install cell upgrades several packages independently of `requirements.txt`; skip it when managing dependencies yourself. Dependencies are not locked, and installation alone does not establish compatibility.
 
-Place the extracted dataset under `dataset/` following the structure above. The [notebook](pothole-segmentation.ipynb) uses paths relative to the project root, so launch Jupyter from `Pothole-Segmentation/`.
+## Default configuration
 
-Training image names must end with an underscore and an identifier, such as `train_326.jpg`. The notebook pairs that image with `dataset/train/mask/mask_326.png` and drops pairs whose mask file is missing. If no pairs remain, the data preparation cell fails when it prints the first pair. Check the directory names and image/mask identifiers before running it.
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Run the notebook
-
-```bash
-jupyter notebook pothole-segmentation.ipynb
-```
-
-Execute cells sequentially. Training runs for **25 epochs** with mixed-precision on GPU.
-
-## ⚙️ Hyperparameters
-
-| Parameter | Value |
+| Setting | Value |
 |---|---|
-| Input size | 768 × 768 |
+| Input canvas | 768 x 768 |
 | Batch size | 8 |
 | Epochs | 25 |
-| Learning rate | 4e-4 → 4e-6 (cosine) |
-| Weight decay | 1e-3 |
 | Optimizer | AdamW |
-| Encoder | EfficientNet-B5 |
+| Learning rate | `4e-4`, cosine decay to `4e-6` |
+| Weight decay | `1e-3` |
+| Encoder | `efficientnet-b5` |
 
-> 💡 **OOM?** Reduce `IMG_SIZE` to 512 and `BATCH` to 4 in the config cell.
+A CUDA GPU is recommended for this configuration. Reduce `IMG_SIZE` and `BATCH` if memory is insufficient. CPU fallback exists, but a full training run can be slow.
 
-## 📊 Pipeline Highlights
+## Generated files
 
-### Augmentations (Albumentations)
-- Affine (shift/scale/rotate)
-- Brightness/contrast & HSV jitter
-- Gaussian blur, motion blur, Gaussian noise
-- Coarse dropout (cutout-style)
+| File | Contents |
+|---|---|
+| `best_model.pt` | Model state dictionary selected by validation Dice |
+| `submission.csv` | `ImageId` and `rle` columns for test JPG files |
 
-### Test-Time Augmentation
-- 3 scales: 0.85×, 1.0×, 1.15×
-- Horizontal flip per scale
-- Averaged probability maps
+RLE uses one-based starts and column-major ordering. An empty foreground mask produces an empty string. Export cells overwrite these filenames. Validation overlays are displayed in the notebook, not saved as a report.
 
-### Post-Processing
-- Morphological closing (5×5 kernel)
-- Connected component filtering (min area = 200 px)
+## Evaluation and implementation limits
 
-## 🙏 Acknowledgments
+- Threshold selection and checkpoint selection reuse one validation split. There is no separately labeled test evaluation or independent performance estimate in the repository.
+- Validation Dice is an unweighted average of batch means, so a smaller final batch has the same weight as a full batch.
+- The inference function resizes a padded square probability map directly to the original dimensions without first removing padding. Non-square inputs can therefore produce misaligned masks. Review this before using exported predictions.
+- Each nominal TTA scale passes through `LongestMaxSize` to the same target size, largely canceling the intended scale change. Do not assume this implements independent multi-resolution inference.
+- The `A.Affine` call uses `shift_limit`, `scale_limit`, and `rotate_limit`, which do not match the current Albumentations affine parameter names. Check warnings and effective transforms rather than assuming those settings are applied.
+- No trained weights, benchmark results, deployment service, or automated test suite are included. Syntax checks are not a training or inference verification.
 
-- [Segmentation Models PyTorch](https://github.com/qubvel-org/segmentation_models.pytorch)
-- [Albumentations](https://albumentations.ai/)
-- [timm](https://github.com/huggingface/pytorch-image-models)
+## Libraries
+
+The implementation uses [Segmentation Models PyTorch](https://github.com/qubvel-org/segmentation_models.pytorch), [Albumentations](https://albumentations.ai/), and [timm](https://github.com/huggingface/pytorch-image-models).
